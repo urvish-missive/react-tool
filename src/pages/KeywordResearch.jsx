@@ -43,29 +43,47 @@ export default function KeywordResearch() {
 
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
 
+  const [siteInfo, setSiteInfo] = useState(null)
+
   const research = useCallback(async () => {
     const hasKeyword = form.seedKeyword?.trim()
     const hasUrl = form.websiteUrl?.trim()
     if (!hasKeyword && !hasUrl) { setError('Please enter a seed keyword or website URL'); return }
-    setLoading(true); setError(null); setAiError(null)
+    setLoading(true); setError(null); setAiError(null); setSiteInfo(null)
     try {
-      let websiteContent = '', seed = hasKeyword?.trim()
+      let websiteContent = '', seed = hasKeyword?.trim(), siteTitle = '', siteHeadings = []
       if (hasUrl) {
-        try {
-          const proxyUrls = [`https://api.allorigins.win/raw?url=${encodeURIComponent(form.websiteUrl)}`, `https://corsproxy.io/?${encodeURIComponent(form.websiteUrl)}`]
-          for (const proxyUrl of proxyUrls) {
-            try { const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) }); if (resp.ok) { websiteContent = await resp.text(); break } } catch { continue }
-          }
-          if (!seed && websiteContent) {
-            const doc = new DOMParser().parseFromString(websiteContent, 'text/html')
-            const topic = doc.querySelector('h1')?.textContent || doc.querySelector('title')?.textContent || ''
-            seed = topic.replace(/[^\w\s]/g, '').trim()
-          }
-        } catch { /* continue */ }
+        const proxyUrls = [
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(form.websiteUrl)}`,
+          `https://corsproxy.io/?${encodeURIComponent(form.websiteUrl)}`,
+          `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(form.websiteUrl)}`,
+        ]
+        for (const proxyUrl of proxyUrls) {
+          try {
+            const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) })
+            if (resp.ok) {
+              websiteContent = await resp.text()
+              const doc = new DOMParser().parseFromString(websiteContent, 'text/html')
+              siteTitle = doc.querySelector('title')?.textContent || ''
+              siteHeadings = Array.from(doc.querySelectorAll('h1, h2, h3')).map(h => h.textContent?.trim()).filter(Boolean).slice(0, 8)
+              break
+            }
+          } catch { continue }
+        }
+        if (!seed && websiteContent) {
+          const doc = new DOMParser().parseFromString(websiteContent, 'text/html')
+          const topic = doc.querySelector('h1')?.textContent || doc.querySelector('title')?.textContent || ''
+          seed = topic.replace(/[^\w\s]/g, '').trim()
+        }
+        if (siteTitle || siteHeadings.length > 0) {
+          setSiteInfo({ title: siteTitle, headings: siteHeadings, fetched: !!websiteContent })
+        } else {
+          setSiteInfo({ title: '', headings: [], fetched: false })
+        }
       }
       if (!seed) { setError('Could not extract a topic. Please enter a seed keyword.'); setLoading(false); return }
       const results = generateKeywords(seed, { country: form.country, businessType: form.businessType, websiteContent })
-      setKeywords(results.slice(0, 30))
+      setKeywords(results.slice(0, 40))
       setQuestions(generateQuestionKeywords(seed))
       storage.addHistory('keyword', { seedKeyword: seed, url: form.websiteUrl || undefined })
     } catch (e) { setError(e.message) } finally { setLoading(false) }
@@ -134,8 +152,33 @@ export default function KeywordResearch() {
 
       {error && <ErrorState title="Error" message={error} />}
       {aiError && <ErrorState title="AI Error" message={aiError} />}
-      {loading && <LoadingState text="Generating keywords..." description="Building keyword patterns" />}
+      {loading && <LoadingState text="Fetching website and generating keywords..." description="Extracting content, headings, and topics from the website" />}
       {aiLoading && <LoadingState text="AI keyword expansion..." description="Generating AI-powered suggestions" />}
+
+      {siteInfo && !loading && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Globe className="w-4 h-4 text-gray-400" />
+            <span className="text-sm font-medium text-gray-700">Website Analysis</span>
+            {siteInfo.fetched ? (
+              <span className="text-xs bg-green-50 text-green-600 px-2 py-0.5 rounded-full">Content fetched</span>
+            ) : (
+              <span className="text-xs bg-yellow-50 text-yellow-600 px-2 py-0.5 rounded-full">Could not fetch (CORS blocked)</span>
+            )}
+          </div>
+          {siteInfo.title && <p className="text-xs text-gray-500 mb-1">Title: {siteInfo.title}</p>}
+          {siteInfo.headings.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {siteInfo.headings.map((h, i) => (
+                <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">{h}</span>
+              ))}
+            </div>
+          )}
+          {!siteInfo.fetched && !form.seedKeyword && (
+            <p className="text-xs text-yellow-600 mt-2">Website content couldn't be fetched due to CORS restrictions. Enter a seed keyword for best results, or try the AI Expand button.</p>
+          )}
+        </div>
+      )}
 
       {keywords.length > 0 && !loading && (
         <div className="space-y-6 animate-fade-in">
