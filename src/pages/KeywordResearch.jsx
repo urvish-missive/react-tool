@@ -9,6 +9,8 @@ import ErrorState from '../components/ErrorState'
 import EmptyState from '../components/EmptyState'
 import ExportButton from '../components/ExportButton'
 import ModelSelector from '../components/ModelSelector'
+import FormError from '../components/FormError'
+import useFormValidation from '../components/useFormValidation'
 import { formatKeywordIntent } from '../utils/keywordUtils'
 
 const COUNTRIES = ['India', 'United States', 'United Kingdom', 'Canada', 'Australia', 'Germany', 'France', 'Japan']
@@ -22,6 +24,8 @@ const AI_SYSTEM_PROMPT = `You are an SEO keyword research expert. Generate keywo
 }
 Generate 15-25 diverse keywords covering different intents. Include long-tail, question, commercial, and informational keywords.
 Return ONLY valid JSON. No markdown.`
+
+const URL_REGEX = /^https?:\/\/.+\..+/
 
 const inputClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-[#0C81F3] focus:outline-none transition-colors"
 const selectClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:border-[#0C81F3] focus:outline-none appearance-none cursor-pointer"
@@ -40,15 +44,24 @@ export default function KeywordResearch() {
   const [sortBy, setSortBy] = useState('opportunity')
   const [filter, setFilter] = useState('all')
   const [activeTab, setActiveTab] = useState('keywords')
+  const [siteInfo, setSiteInfo] = useState(null)
+
+  const { errors, validate, touchField } = useFormValidation(form, {
+    seedKeyword: [
+      { test: (v, form) => v.trim().length > 0 || (form.websiteUrl || '').trim().length > 0, message: 'Enter a seed keyword or provide a website URL' },
+    ],
+    websiteUrl: [
+      { test: (v) => v.trim().length === 0 || URL_REGEX.test(v.trim()), message: 'Enter a valid URL starting with http:// or https://' },
+    ],
+  })
 
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
-
-  const [siteInfo, setSiteInfo] = useState(null)
 
   const research = useCallback(async () => {
     const hasKeyword = form.seedKeyword?.trim()
     const hasUrl = form.websiteUrl?.trim()
     if (!hasKeyword && !hasUrl) { setError('Please enter a seed keyword or website URL'); return }
+    if (hasUrl && !URL_REGEX.test(hasUrl)) { setError('Please enter a valid URL starting with http:// or https://'); return }
     setLoading(true); setError(null); setAiError(null); setSiteInfo(null)
     try {
       let websiteContent = '', seed = hasKeyword?.trim(), siteTitle = '', siteHeadings = []
@@ -56,17 +69,19 @@ export default function KeywordResearch() {
         const proxyUrls = [
           `https://api.allorigins.win/raw?url=${encodeURIComponent(form.websiteUrl)}`,
           `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(form.websiteUrl)}`,
-          `https://corsproxy.io/?key=FREE&url=${encodeURIComponent(form.websiteUrl)}`,
         ]
         for (const proxyUrl of proxyUrls) {
           try {
-            const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) })
+            const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) })
             if (resp.ok) {
-              websiteContent = await resp.text()
-              const doc = new DOMParser().parseFromString(websiteContent, 'text/html')
-              siteTitle = doc.querySelector('title')?.textContent || ''
-              siteHeadings = Array.from(doc.querySelectorAll('h1, h2, h3')).map(h => h.textContent?.trim()).filter(Boolean).slice(0, 8)
-              break
+              const text = await resp.text()
+              if (text.includes('<html') || text.includes('<head') || text.includes('<body')) {
+                websiteContent = text
+                const doc = new DOMParser().parseFromString(websiteContent, 'text/html')
+                siteTitle = doc.querySelector('title')?.textContent || ''
+                siteHeadings = Array.from(doc.querySelectorAll('h1, h2, h3')).map(h => h.textContent?.trim()).filter(Boolean).slice(0, 8)
+                break
+              }
             }
           } catch { continue }
         }
@@ -75,11 +90,7 @@ export default function KeywordResearch() {
           const topic = doc.querySelector('h1')?.textContent || doc.querySelector('title')?.textContent || ''
           seed = topic.replace(/[^\w\s]/g, '').trim()
         }
-        if (siteTitle || siteHeadings.length > 0) {
-          setSiteInfo({ title: siteTitle, headings: siteHeadings, fetched: !!websiteContent })
-        } else {
-          setSiteInfo({ title: '', headings: [], fetched: false })
-        }
+        setSiteInfo({ title: siteTitle, headings: siteHeadings, fetched: !!websiteContent })
       }
       if (!seed) { setError('Could not extract a topic. Please enter a seed keyword.'); setLoading(false); return }
       const results = generateKeywords(seed, { country: form.country, businessType: form.businessType, websiteContent })
@@ -90,9 +101,12 @@ export default function KeywordResearch() {
   }, [form])
 
   const runAI = async () => {
+    const hasKeyword = form.seedKeyword?.trim()
+    const hasUrl = form.websiteUrl?.trim()
+    if (!hasKeyword && !hasUrl) { setAiError('Enter a seed keyword or website URL first'); return }
+    if (hasUrl && !URL_REGEX.test(hasUrl)) { setAiError('Please enter a valid URL'); return }
     const apiKey = storage.getApiKey(provider)
     if (!apiKey) { setAiError(`No API key for ${provider}. Go to Settings.`); return }
-    if (!form.seedKeyword?.trim() && !form.websiteUrl?.trim()) { setAiError('Enter a seed keyword or website URL first'); return }
     setAiLoading(true); setAiError(null)
     try {
       const userPrompt = `Seed Keyword: ${form.seedKeyword || 'Extract from website'}\nWebsite: ${form.websiteUrl || 'N/A'}\nCountry: ${form.country}\nBusiness Type: ${form.businessType}\n\nGenerate 15-25 keyword ideas covering commercial, informational, long-tail, question, and comparison keywords.\nReturn JSON with keywords array: keyword, intent, relevance (0-100), reason`
@@ -121,14 +135,16 @@ export default function KeywordResearch() {
       </div>
 
       <div className={`${cardClass} mb-8`}>
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5"><Search className="w-3.5 h-3.5 inline mr-1" /> Seed Keyword</label>
-            <input type="text" value={form.seedKeyword} onChange={e => update('seedKeyword', e.target.value)} placeholder="e.g. insurance" className={inputClass} />
+            <input type="text" value={form.seedKeyword} onChange={e => update('seedKeyword', e.target.value)} onBlur={() => touchField('seedKeyword')} placeholder="e.g. insurance" className={`${inputClass} ${errors.seedKeyword ? 'border-red-400 focus:border-red-500' : ''}`} />
+            <FormError message={errors.seedKeyword} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5"><Globe className="w-3.5 h-3.5 inline mr-1" /> Website URL</label>
-            <input type="url" value={form.websiteUrl} onChange={e => update('websiteUrl', e.target.value)} placeholder="https://example.com" className={inputClass} />
+            <input type="url" value={form.websiteUrl} onChange={e => update('websiteUrl', e.target.value)} onBlur={() => touchField('websiteUrl')} placeholder="https://example.com" className={`${inputClass} ${errors.websiteUrl ? 'border-red-400 focus:border-red-500' : ''}`} />
+            <FormError message={errors.websiteUrl} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5"><Globe className="w-3.5 h-3.5 inline mr-1" /> Country</label>
@@ -139,12 +155,12 @@ export default function KeywordResearch() {
             <select value={form.businessType} onChange={e => update('businessType', e.target.value)} className={selectClass}>{BUSINESS_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}</select>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3 mt-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 mt-4">
           <div className="w-full sm:w-48"><ModelSelector value={provider} onChange={setProvider} /></div>
-          <button onClick={research} disabled={loading} className="flex-1 sm:flex-none px-6 py-2.5 bg-gradient-to-r from-[#0C81F3] to-[#EB8988] text-white rounded-lg font-medium text-sm hover:opacity-90 transition-opacity disabled:opacity-50">
+          <button onClick={research} disabled={loading} className="px-6 py-2.5 bg-gradient-to-r from-[#0C81F3] to-[#EB8988] text-white rounded-lg font-medium text-sm hover:opacity-90 transition-opacity disabled:opacity-50">
             {loading ? 'Researching...' : 'Generate Keywords'}
           </button>
-          <button onClick={runAI} disabled={aiLoading} className="flex-1 sm:flex-none px-6 py-2.5 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+          <button onClick={runAI} disabled={aiLoading} className="px-6 py-2.5 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             <Wand2 className="w-4 h-4" /> {aiLoading ? 'AI Running...' : 'AI Expand'}
           </button>
         </div>
@@ -196,11 +212,11 @@ export default function KeywordResearch() {
 
           {activeTab === 'keywords' && (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Filter className="w-4 h-4 text-gray-400" />
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <Filter className="w-4 h-4 text-gray-400 shrink-0" />
                 {intents.map(intent => (
                   <button key={intent} onClick={() => setFilter(intent)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filter === intent ? 'bg-[#0C81F3]/10 text-[#0C81F3] border border-[#0C81F3]/30' : 'bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-900'}`}>
+                    className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors ${filter === intent ? 'bg-[#0C81F3]/10 text-[#0C81F3] border border-[#0C81F3]/30' : 'bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-900'}`}>
                     {intent === 'all' ? 'All' : intent.charAt(0).toUpperCase() + intent.slice(1)}
                     {intent !== 'all' && ` (${intentCounts[intent] || 0})`}
                   </button>
@@ -220,33 +236,34 @@ export default function KeywordResearch() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200 bg-gray-50">
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium">Keyword</th>
-                        <th className="text-left px-4 py-3 text-gray-500 font-medium">Intent</th>
-                        <th className="text-center px-4 py-3 text-gray-500 font-medium">Opportunity</th>
-                        <th className="text-center px-4 py-3 text-gray-500 font-medium">Relevance</th>
-                        <th className="text-right px-4 py-3 text-gray-500 font-medium">Action</th>
+                        <th className="text-left px-3 sm:px-4 py-3 text-gray-500 font-medium">Keyword</th>
+                        <th className="text-left px-3 sm:px-4 py-3 text-gray-500 font-medium hidden sm:table-cell">Intent</th>
+                        <th className="text-center px-3 sm:px-4 py-3 text-gray-500 font-medium">Opp.</th>
+                        <th className="text-center px-3 sm:px-4 py-3 text-gray-500 font-medium hidden md:table-cell">Relevance</th>
+                        <th className="text-right px-3 sm:px-4 py-3 text-gray-500 font-medium">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredKeywords.map((kw, i) => (
                         <tr key={i} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-2.5 text-gray-900 font-medium">
-                            {kw.keyword}
-                            {kw.longtail && <span className="ml-2 text-xs bg-[#0C81F3]/10 text-[#0C81F3] px-1.5 py-0.5 rounded">long-tail</span>}
-                            {kw.source === 'ai' && <span className="ml-2 text-xs bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded">AI</span>}
+                          <td className="px-3 sm:px-4 py-2.5 text-gray-900 font-medium">
+                            <span className="block sm:inline">{kw.keyword}</span>
+                            <span className="sm:hidden text-xs text-gray-400 block mt-0.5">{kw.intent}</span>
+                            {kw.longtail && <span className="ml-2 text-xs bg-[#0C81F3]/10 text-[#0C81F3] px-1.5 py-0.5 rounded hidden sm:inline">long-tail</span>}
+                            {kw.source === 'ai' && <span className="ml-2 text-xs bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded hidden sm:inline">AI</span>}
                           </td>
-                          <td className="px-4 py-2.5">
+                          <td className="px-3 sm:px-4 py-2.5 hidden sm:table-cell">
                             <span className={`text-xs px-2 py-1 rounded-full border ${formatKeywordIntent(kw.intent)}`}>{kw.intent}</span>
                           </td>
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-3 sm:px-4 py-2.5 text-center">
                             <span className={`text-sm font-bold ${kw.opportunity >= 80 ? 'text-green-600' : kw.opportunity >= 60 ? 'text-yellow-600' : 'text-gray-400'}`}>{kw.opportunity}</span>
                           </td>
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-3 sm:px-4 py-2.5 text-center hidden md:table-cell">
                             <span className={`text-sm font-bold ${kw.relevance >= 80 ? 'text-green-600' : kw.relevance >= 60 ? 'text-yellow-600' : 'text-gray-400'}`}>{kw.relevance || '—'}</span>
                           </td>
-                          <td className="px-4 py-2.5 text-right">
-                            <button onClick={() => copyKeyword(kw.keyword, i)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-600 transition-colors">
-                              {copiedIdx === i ? <><Check className="w-3 h-3 text-green-500" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                          <td className="px-3 sm:px-4 py-2.5 text-right">
+                            <button onClick={() => copyKeyword(kw.keyword, i)} className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs text-gray-600 transition-colors">
+                              {copiedIdx === i ? <><Check className="w-3 h-3 text-green-500" /> <span className="hidden sm:inline">Copied</span></> : <><Copy className="w-3 h-3" /> <span className="hidden sm:inline">Copy</span></>}
                             </button>
                           </td>
                         </tr>

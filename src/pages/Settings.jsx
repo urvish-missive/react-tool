@@ -41,10 +41,10 @@ export default function Settings() {
 
       <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">AI Provider</h2>
-        <div className="flex gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
           {[{ id: 'openrouter', label: 'OpenRouter', desc: 'Gemini 2.5 Flash — versatile, reliable' }, { id: 'gemini', label: 'Google Gemini', desc: 'Direct Google AI API' }].map(p => (
             <button key={p.id} onClick={() => setProvider(p.id)}
-              className={`flex-1 p-4 rounded-xl border-2 transition-all text-left ${provider === p.id ? 'border-[#0C81F3] bg-[#0C81F3]/5' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`}>
+              className={`p-4 rounded-xl border-2 transition-all text-left ${provider === p.id ? 'border-[#0C81F3] bg-[#0C81F3]/5' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`}>
               <p className="text-sm font-medium text-gray-900">{p.label}</p>
               <p className="text-xs text-gray-500 mt-1">{p.desc}</p>
             </button>

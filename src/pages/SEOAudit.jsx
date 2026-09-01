@@ -11,6 +11,8 @@ import ErrorState from '../components/ErrorState'
 import EmptyState from '../components/EmptyState'
 import ExportButton from '../components/ExportButton'
 import ModelSelector from '../components/ModelSelector'
+import FormError from '../components/FormError'
+import useFormValidation from '../components/useFormValidation'
 
 const CATEGORY_LABELS = {
   technical: 'Technical SEO', onpage: 'On-Page SEO', content: 'Content',
@@ -29,6 +31,8 @@ const AI_SYSTEM_PROMPT = `You are an SEO expert. Analyze the website audit data 
 }
 Return ONLY valid JSON. No markdown.`
 
+const URL_REGEX = /^https?:\/\/.+\..+/
+
 const inputClass = "w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-[#0C81F3] focus:outline-none transition-colors"
 const cardClass = "bg-white border border-gray-200 rounded-xl p-6 shadow-sm"
 
@@ -45,31 +49,55 @@ export default function SEOAudit() {
   const [error, setError] = useState(null)
   const [aiError, setAiError] = useState(null)
 
+  const { errors: urlErrors, validate: validateUrl, touchField: touchUrl } = useFormValidation(
+    { url },
+    { url: [
+      { test: v => v.trim().length > 0, message: 'Please enter a website URL' },
+      { test: v => URL_REGEX.test(v.trim()), message: 'Enter a valid URL starting with http:// or https://' },
+    ]}
+  )
+
+  const { errors: htmlErrors, validate: validateHtml, touchField: touchHtml } = useFormValidation(
+    { html },
+    { html: [
+      { test: v => v.trim().length > 0, message: 'Please paste or upload HTML content' },
+      { test: v => v.trim().length >= 100, message: 'HTML content seems too short to analyze meaningfully' },
+    ]}
+  )
+
   const fetchURL = useCallback(async () => {
-    if (!url.trim()) { setError('Please enter a URL'); return }
+    if (!validateUrl()) return
     setLoading(true); setError(null); setResult(null)
     try {
       const proxyUrls = [
         `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
         `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?key=FREE&url=${encodeURIComponent(url)}`,
       ]
       let htmlContent = null
       for (const proxyUrl of proxyUrls) {
-        try { const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) }); if (resp.ok) { htmlContent = await resp.text(); break } } catch { continue }
+        try {
+          const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) })
+          if (resp.ok) {
+            const text = await resp.text()
+            if (text.includes('<html') || text.includes('<head') || text.includes('<body')) {
+              htmlContent = text
+              break
+            }
+          }
+        } catch { continue }
       }
       if (!htmlContent) {
-        setError(`Could not fetch "${url}" — the website may block cross-origin requests.\n\nTry: Switch to "Paste HTML" and copy the page source (Ctrl+U)`)
+        setError(`Could not fetch "${url}" — most websites block cross-origin requests from browsers.\n\nTip: Switch to "Paste HTML" tab and paste the page source (right-click → View Page Source → Ctrl+A → Ctrl+C)`)
         setLoading(false); return
       }
       const res = analyzeSEO(htmlContent, keyword)
       setResult({ ...res, url })
       storage.addHistory('audit', { title: url, score: res.summary.overallScore })
     } catch (e) { setError(`Failed to analyze: ${e.message}`) } finally { setLoading(false) }
-  }, [url, keyword])
+  }, [url, keyword, validateUrl])
 
   const analyzeHTML = useCallback(() => {
-    if (!html.trim()) { setError('Please paste or upload HTML content'); return }
+    if (!validateHtml()) return
     setLoading(true); setError(null); setResult(null)
     setTimeout(() => {
       try {
@@ -78,7 +106,7 @@ export default function SEOAudit() {
         storage.addHistory('audit', { title: 'HTML Analysis', score: res.summary.overallScore })
       } catch (e) { setError(`Failed to analyze: ${e.message}`) } finally { setLoading(false) }
     }, 200)
-  }, [html, keyword])
+  }, [html, keyword, validateHtml])
 
   const runAI = async () => {
     const apiKey = storage.getApiKey(provider)
@@ -93,7 +121,17 @@ export default function SEOAudit() {
     } catch (e) { setAiError(e.message) } finally { setAiLoading(false) }
   }
 
-  const handleFileUpload = (e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => setHtml(ev.target.result); reader.readAsText(file) }
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.name.match(/\.(html?|htm)$/i)) {
+      setError('Please upload an .html or .htm file')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (ev) => setHtml(ev.target.result)
+    reader.readAsText(file)
+  }
 
   const statusIcon = (status) => {
     if (status === 'pass') return <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -110,24 +148,40 @@ export default function SEOAudit() {
       </div>
 
       <div className={`${cardClass} mb-8`}>
-        <div className="flex gap-2 mb-4">
-          {[{ id: 'url', icon: <Globe className="w-4 h-4" />, label: 'Fetch URL' }, { id: 'html', icon: <FileText className="w-4 h-4" />, label: 'Paste HTML' }, { id: 'upload', icon: <Upload className="w-4 h-4" />, label: 'Upload File' }].map(tab => (
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+          {[{ id: 'url', icon: <Globe className="w-4 h-4 shrink-0" />, label: 'Fetch URL' }, { id: 'html', icon: <FileText className="w-4 h-4 shrink-0" />, label: 'Paste HTML' }, { id: 'upload', icon: <Upload className="w-4 h-4 shrink-0" />, label: 'Upload File' }].map(tab => (
             <button key={tab.id} onClick={() => setInputMethod(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${inputMethod === tab.id ? 'bg-[#0C81F3]/10 text-[#0C81F3] border border-[#0C81F3]/30' : 'bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-900'}`}>
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${inputMethod === tab.id ? 'bg-[#0C81F3]/10 text-[#0C81F3] border border-[#0C81F3]/30' : 'bg-gray-100 text-gray-500 border border-gray-200 hover:text-gray-900'}`}>
               {tab.icon} {tab.label}
             </button>
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
-            {inputMethod === 'url' && <input type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com" className={inputClass} />}
-            {inputMethod === 'html' && <textarea value={html} onChange={e => setHtml(e.target.value)} placeholder="Paste page HTML source here (Ctrl+U in browser)" className={`${inputClass} h-40 font-mono resize-y`} />}
+            {inputMethod === 'url' && (
+              <div>
+                <input type="url" value={url} onChange={e => setUrl(e.target.value)} onBlur={() => touchUrl('url')} placeholder="https://example.com" className={`${inputClass} ${urlErrors.url ? 'border-red-400 focus:border-red-500' : ''}`} />
+                <FormError message={urlErrors.url} />
+              </div>
+            )}
+            {inputMethod === 'html' && (
+              <div>
+                <textarea value={html} onChange={e => setHtml(e.target.value)} onBlur={() => touchHtml('html')} placeholder="Paste page HTML source here (Ctrl+U in browser)" className={`${inputClass} h-40 font-mono resize-y ${htmlErrors.html ? 'border-red-400 focus:border-red-500' : ''}`} />
+                <div className="flex justify-between items-center mt-1">
+                  <FormError message={htmlErrors.html} />
+                  {html.trim() && <span className="text-xs text-gray-400">{html.length.toLocaleString()} characters</span>}
+                </div>
+              </div>
+            )}
             {inputMethod === 'upload' && (
-              <label className="flex flex-col items-center justify-center h-40 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#0C81F3] transition-colors">
-                <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                <span className="text-sm text-gray-500">Click to upload .html file</span>
-                <input type="file" accept=".html,.htm" onChange={handleFileUpload} className="hidden" />
-              </label>
+              <div>
+                <label className="flex flex-col items-center justify-center h-40 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-[#0C81F3] transition-colors">
+                  <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                  <span className="text-sm text-gray-500">Click to upload .html file</span>
+                  {html && <span className="text-xs text-green-600 mt-1">✓ File loaded ({html.length.toLocaleString()} chars)</span>}
+                  <input type="file" accept=".html,.htm" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
             )}
           </div>
           <div className="space-y-3">
@@ -162,7 +216,7 @@ export default function SEOAudit() {
                 ))}
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4 mt-6">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 mt-6">
               <ScoreCard label="Passed" value={result.summary.passedChecks} icon="✅" color="#22c55e" small />
               <ScoreCard label="Warnings" value={result.summary.warningChecks} icon="⚠️" color="#eab308" small />
               <ScoreCard label="Failed" value={result.summary.failedChecks} icon="❌" color="#ef4444" small />
@@ -195,13 +249,13 @@ export default function SEOAudit() {
             <h3 className="text-base font-semibold text-gray-900 mb-4">Detailed Checks</h3>
             <div className="space-y-1.5">
               {result.checks.map((check, i) => (
-                <div key={i} className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors">
-                  {statusIcon(check.status)}
+                <div key={i} className="flex items-start gap-2 sm:gap-3 py-2 px-2 sm:px-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <span className="shrink-0 mt-0.5">{statusIcon(check.status)}</span>
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-gray-900">{check.name}</span>
-                    <span className="text-sm text-gray-500 ml-2">{check.message}</span>
+                    <span className="text-sm font-medium text-gray-900 block sm:inline">{check.name}</span>
+                    <span className="text-sm text-gray-500 sm:ml-2 block sm:inline">{check.message}</span>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
+                  <span className={`text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full shrink-0 ${
                     check.category === 'technical' ? 'bg-blue-50 text-blue-600' :
                     check.category === 'content' ? 'bg-green-50 text-green-600' :
                     check.category === 'images' ? 'bg-yellow-50 text-yellow-600' :

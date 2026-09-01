@@ -10,6 +10,8 @@ import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
 import ExportButton from '../components/ExportButton'
 import ModelSelector from '../components/ModelSelector'
+import FormError from '../components/FormError'
+import useFormValidation from '../components/useFormValidation'
 
 const CONTENT_TYPES = ['article', 'blog post', 'landing page', 'product page', 'service page', 'homepage']
 const COUNTRIES = ['India', 'United States', 'United Kingdom', 'Canada', 'Australia', 'Germany', 'France', 'Japan']
@@ -50,10 +52,17 @@ export default function ContentAnalyzer() {
   const [error, setError] = useState(null)
   const [aiError, setAiError] = useState(null)
 
+  const { errors, validate, touchField } = useFormValidation(form, {
+    content: [
+      { test: v => v.trim().length > 0, message: 'Content is required' },
+      { test: v => v.trim().split(/\s+/).filter(Boolean).length >= 20, message: 'Content must be at least 20 words for meaningful analysis' },
+    ],
+  })
+
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }))
 
   const analyze = useCallback(() => {
-    if (!form.content.trim()) { setError('Please enter some content to analyze'); return }
+    if (!validate()) return
     setError(null); setAiError(null); setAiResult(null); setLoading(true)
     setTimeout(() => {
       try {
@@ -63,9 +72,10 @@ export default function ContentAnalyzer() {
         storage.addHistory('content', { title: `Content Analysis — ${form.keyword || 'untitled'}`, score: res.score })
       } catch (e) { setError(e.message) } finally { setLoading(false) }
     }, 300)
-  }, [form])
+  }, [form, validate])
 
   const runAI = async () => {
+    if (!validate()) return
     const apiKey = storage.getApiKey(provider)
     if (!apiKey) { setAiError(`No API key for ${provider}. Go to Settings.`); return }
     setAiLoading(true); setAiError(null)
@@ -77,6 +87,8 @@ export default function ContentAnalyzer() {
       storage.addHistory('content', { title: `AI Analysis — ${form.keyword || 'untitled'}` })
     } catch (e) { setAiError(e.message) } finally { setAiLoading(false) }
   }
+
+  const contentWordCount = form.content.trim().split(/\s+/).filter(Boolean).length
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -92,11 +104,19 @@ export default function ContentAnalyzer() {
               <FileText className="w-4 h-4 inline mr-1.5" /> Content *
             </label>
             <textarea
-              value={form.content} onChange={e => update('content', e.target.value)}
+              value={form.content}
+              onChange={e => update('content', e.target.value)}
+              onBlur={() => touchField('content')}
               placeholder="Paste your article, blog post, or page content here..."
-              className={`${inputClass} h-48 resize-y`}
+              className={`${inputClass} h-48 resize-y ${errors.content ? 'border-red-400 focus:border-red-500' : ''}`}
             />
-            <p className="text-xs text-gray-400 mt-1">{form.content.split(/\s+/).filter(Boolean).length} words • {form.content.length} characters</p>
+            <div className="flex justify-between items-center mt-1">
+              <p className={`text-xs ${contentWordCount > 0 && contentWordCount < 20 ? 'text-red-500' : 'text-gray-400'}`}>
+                {contentWordCount} words • {form.content.length} characters
+                {contentWordCount > 0 && contentWordCount < 20 && ' (min 20 words)'}
+              </p>
+              <FormError message={errors.content} />
+            </div>
           </div>
           <div className="space-y-4">
             <div>
@@ -107,7 +127,7 @@ export default function ContentAnalyzer() {
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Secondary Keywords</label>
               <input type="text" value={form.secondaryKeywords} onChange={e => update('secondaryKeywords', e.target.value)} placeholder="comma separated" className={inputClass} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Content Type</label>
                 <select value={form.contentType} onChange={e => update('contentType', e.target.value)} className={selectClass}>
@@ -122,13 +142,13 @@ export default function ContentAnalyzer() {
               </div>
             </div>
             <ModelSelector value={provider} onChange={setProvider} />
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button onClick={analyze} disabled={!form.content.trim() || loading}
                 className="flex-1 px-4 py-2.5 bg-gradient-to-r from-[#0C81F3] to-[#EB8988] text-white rounded-lg font-medium text-sm hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed">
                 {loading ? 'Analyzing...' : 'Analyze Content'}
               </button>
               <button onClick={runAI} disabled={!form.content.trim() || aiLoading}
-                className="px-4 py-2.5 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                className="px-4 py-2.5 bg-gray-100 border border-gray-200 text-gray-700 rounded-lg font-medium text-sm hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                 <Wand2 className="w-4 h-4" /> {aiLoading ? 'AI Running...' : 'AI Analysis'}
               </button>
             </div>

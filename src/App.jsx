@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import ContentAnalyzer from './pages/ContentAnalyzer'
 import SEOAudit from './pages/SEOAudit'
 import KeywordResearch from './pages/KeywordResearch'
+import ContentQA from './pages/ContentQA'
 import Settings from './pages/Settings'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/content-analyzer" element={<ContentAnalyzer />} />
           <Route path="/seo-audit" element={<SEOAudit />} />
           <Route path="/keyword-research" element={<KeywordResearch />} />
+          <Route path="/content-qa" element={<ContentQA />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </Layout>

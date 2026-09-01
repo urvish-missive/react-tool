@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, BarChart3, FileText, Clock, Trash2, ArrowRight, Sparkles } from 'lucide-react'
+import { Search, BarChart3, FileText, Clock, Trash2, ArrowRight, Sparkles, ClipboardCheck } from 'lucide-react'
 import storage from '../services/storage/localStorage'
 import EmptyState from '../components/EmptyState'
 
@@ -43,6 +43,7 @@ export default function Dashboard() {
     { to: '/content-analyzer', icon: '📝', title: 'Content Analyzer', desc: 'Analyze content for SEO optimization, readability, and keyword usage', color: '#0C81F3' },
     { to: '/seo-audit', icon: '🔍', title: 'SEO Audit', desc: 'Audit any website for technical SEO issues and improvements', color: '#a855f7' },
     { to: '/keyword-research', icon: '🎯', title: 'Keyword Research', desc: 'Generate keyword ideas and opportunities from seed keywords', color: '#22c55e' },
+    { to: '/content-qa', icon: '✅', title: 'Content QA', desc: 'QA checklist to catch content issues before publish', color: '#f97316' },
   ]
 
   return (
@@ -62,7 +63,7 @@ export default function Dashboard() {
       </div>
 
       {/* Tools Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-12">
         {tools.map(tool => (
           <Link
             key={tool.to}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Menu, X, Search, BarChart3, Settings, Home, FileText } from 'lucide-react'
+import { Menu, X, Search, BarChart3, Settings, Home, FileText, ClipboardCheck } from 'lucide-react'
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -11,6 +11,7 @@ export default function Navbar() {
     { to: '/content-analyzer', label: 'Content Analyzer', icon: <FileText className="w-4 h-4" /> },
     { to: '/seo-audit', label: 'SEO Audit', icon: <BarChart3 className="w-4 h-4" /> },
     { to: '/keyword-research', label: 'Keyword Research', icon: <Search className="w-4 h-4" /> },
+    { to: '/content-qa', label: 'Content QA', icon: <ClipboardCheck className="w-4 h-4" /> },
     { to: '/settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
   ]
 
