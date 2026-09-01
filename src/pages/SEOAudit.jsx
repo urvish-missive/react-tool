@@ -51,7 +51,8 @@ export default function SEOAudit() {
     try {
       const proxyUrls = [
         `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        `https://corsproxy.io/?key=FREE&url=${encodeURIComponent(url)}`,
       ]
       let htmlContent = null
       for (const proxyUrl of proxyUrls) {

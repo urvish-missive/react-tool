@@ -55,8 +55,8 @@ export default function KeywordResearch() {
       if (hasUrl) {
         const proxyUrls = [
           `https://api.allorigins.win/raw?url=${encodeURIComponent(form.websiteUrl)}`,
-          `https://corsproxy.io/?${encodeURIComponent(form.websiteUrl)}`,
           `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(form.websiteUrl)}`,
+          `https://corsproxy.io/?key=FREE&url=${encodeURIComponent(form.websiteUrl)}`,
         ]
         for (const proxyUrl of proxyUrls) {
           try {
